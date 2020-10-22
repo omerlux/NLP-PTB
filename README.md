@@ -1,7 +1,7 @@
 # Implementing PTB model (at mos-pytroch1.1)
 
-# mos-pytorch1.1
-# Breaking the Softmax Bottleneck: A High-Rank Language Model
+## mos-pytorch1.1
+## Breaking the Softmax Bottleneck: A High-Rank Language Model
 ![Stars](https://img.shields.io/github/stars/yfreedomliTHU/mos-pytorch1.1)
 ![Forks](https://img.shields.io/github/forks/yfreedomliTHU/mos-pytorch1.1)
 
@@ -19,7 +19,7 @@ This code refered the paper
 
 >Preprint 2017
 
-## Requirements
+### Requirements
 
 Python 3.6, PyTorch 1.1.0
 
@@ -32,13 +32,13 @@ Below are results of the current version on Penn Treebank as reported in https:/
 
 **MoS + dynamic evaluation:** Valid 49.03 Test: 48.43
 
-## Download the data
+### Download the data
 
 ```./get_data.sh```
 
-## Train the models (to reproduce our results)
+### Train the models (to reproduce our results)
 
-### Penn Treebank
+#### Penn Treebank
 
 First, train the model
 
@@ -54,7 +54,7 @@ Third, run dynamic evaluation
 
 ```python dynamiceval.py --data data/penn --gpu_device 4 --path PATH_TO_FOLDER --lamb 0.075```
 
-### WikiText-2 (Single GPU)
+#### WikiText-2 (Single GPU)
 
 First, train the model
 
@@ -68,7 +68,7 @@ Third, run dynamic evaluation
 
 ```python dynamiceval.py --data data/wikitext-2 --model PATH_TO_FOLDER --epsilon 0.002```
 
-### WikiText-2 (3 GPUs)
+#### WikiText-2 (3 GPUs)
 
 This will yield the same results as using one single GPU, but will be faster.
 
@@ -84,7 +84,7 @@ Third, run dynamic evaluation
 
 ```python dynamiceval.py --data data/wikitext-2 --model PATH_TO_FOLDER/finetune_model.pt --epsilon 0.002```
 
-## Acknowledgements
+### Acknowledgements
 
 
 

@@ -1,0 +1,8 @@
+collecting gradient statistics
+running dynamic evaluation
+perplexity loss (valid): 49.86727
+
+
+collecting gradient statistics
+running dynamic evaluation
+perplexity loss (test): 49.12798

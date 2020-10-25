@@ -94,16 +94,16 @@ class RNNModel(nn.Module):
         hidden = new_hidden
 
         output = self.lockdrop(raw_output, self.dropout if self.use_dropout else 0)
-        outputs.append(output)
+        outputs.append(output)  # this i G
 
-        latent = self.latent(output)
+        latent = self.latent(output)    # this is H (tanh(W1 * G)
         latent = self.lockdrop(latent, self.dropoutl if self.use_dropout else 0)
-        logit = self.decoder(latent.view(-1, self.ninp))
+        logit = self.decoder(latent.view(-1, self.ninp))    # this is the logit = W2 * H
 
-        prior_logit = self.prior(output).contiguous().view(-1, self.n_experts)
-        prior = nn.functional.softmax(prior_logit, -1)
+        prior_logit = self.prior(output).contiguous().view(-1, self.n_experts)  # W3 * G
+        prior = nn.functional.softmax(prior_logit, -1)      # softmax ( W3 * G )
 
-        prob = nn.functional.softmax(logit.view(-1, self.ntoken), -1).view(-1, self.n_experts, self.ntoken)
+        prob = nn.functional.softmax(logit.view(-1, self.ntoken), -1).view(-1, self.n_experts, self.ntoken)     # N x M
         prob = (prob * prior.unsqueeze(2).expand_as(prob)).sum(1)
 
         if return_prob:

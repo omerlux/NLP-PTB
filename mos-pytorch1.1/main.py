@@ -99,7 +99,7 @@ if args.small_batch_size < 0:
     args.small_batch_size = args.batch_size
 
 if not args.continue_train:
-    args.save = '{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
+    args.save = '{}-{}-{}'.format(args.save, str(args.n_experts) + 'mixtures', time.strftime("%Y%m%d-%H%M%S")) # added {} and text in it
     create_exp_dir(args.save, scripts_to_save=['main.py', 'model.py'])
 
 log_format = '%(asctime)s %(message)s'

@@ -4,13 +4,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from embed_regularize import embedded_dropout
-from locked_dropout import LockedDropout
+from locked_dropout import MyLockedDropout as LockedDropout
 from weight_drop import WeightDrop
 
 
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
+    # TODO: add here mask for epoch flag & mask properties
     def __init__(self, rnn_type, ntoken, ninp, nhid, nhidlast, nlayers,
                  dropout=0.5, dropouth=0.5, dropouti=0.5, dropoute=0.1, wdrop=0,
                  tie_weights=False, ldropout=0.5, n_experts=10):
@@ -57,6 +58,9 @@ class RNNModel(nn.Module):
         self.n_experts = n_experts
         self.ntoken = ntoken
 
+        # for epoch mask:
+        self.masks = []
+
         size = 0
         for p in self.parameters():
             size += p.nelement()
@@ -69,13 +73,15 @@ class RNNModel(nn.Module):
         self.decoder.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, input, hidden, return_h=False, return_prob=False):
+        epoch_mask = self.masks != []  # will be True if masks are set (in the training session)
         batch_size = input.size(1)
 
         emb = embedded_dropout(self.encoder, input,
                                dropout=self.dropoute if (self.training and self.use_dropout) else 0)
         # emb = self.idrop(emb)
 
-        emb = self.lockdrop(emb, self.dropouti if self.use_dropout else 0)
+        emb = self.lockdrop(emb, self.dropouti if self.use_dropout else 0) if not epoch_mask \
+            else (emb * self.masks['emb'])  # constant mask for epoch_mask
 
         raw_output = emb
         new_hidden = []
@@ -89,21 +95,24 @@ class RNNModel(nn.Module):
             raw_outputs.append(raw_output)
             if l != self.nlayers - 1:
                 # self.hdrop(raw_output)
-                raw_output = self.lockdrop(raw_output, self.dropouth if self.use_dropout else 0)
+                raw_output = self.lockdrop(raw_output, self.dropouth if self.use_dropout else 0) if not epoch_mask \
+                    else raw_output * self.masks['raw_output_' + str(l)]  # constant mask for epoch_mask
                 outputs.append(raw_output)
         hidden = new_hidden
 
-        output = self.lockdrop(raw_output, self.dropout if self.use_dropout else 0)
+        output = self.lockdrop(raw_output, self.dropout if self.use_dropout else 0) if not epoch_mask \
+            else raw_output * self.masks['output']  # constant mask for epoch_mask
         outputs.append(output)  # this i G
 
-        latent = self.latent(output)    # this is H (tanh(W1 * G)
-        latent = self.lockdrop(latent, self.dropoutl if self.use_dropout else 0)
-        logit = self.decoder(latent.view(-1, self.ninp))    # this is the logit = W2 * H
+        latent = self.latent(output)  # this is H (tanh(W1 * G)
+        latent = self.lockdrop(latent, self.dropoutl if self.use_dropout else 0) if not epoch_mask \
+            else latent * self.masks['latent']  # constant mask for epoch_mask
+        logit = self.decoder(latent.view(-1, self.ninp))  # this is the logit = W2 * H
 
         prior_logit = self.prior(output).contiguous().view(-1, self.n_experts)  # W3 * G
-        prior = nn.functional.softmax(prior_logit, -1)      # softmax ( W3 * G )
+        prior = nn.functional.softmax(prior_logit, -1)  # softmax ( W3 * G )
 
-        prob = nn.functional.softmax(logit.view(-1, self.ntoken), -1).view(-1, self.n_experts, self.ntoken)     # N x M
+        prob = nn.functional.softmax(logit.view(-1, self.ntoken), -1).view(-1, self.n_experts, self.ntoken)  # N x M
         prob = (prob * prior.unsqueeze(2).expand_as(prob)).sum(1)
 
         if return_prob:
@@ -123,6 +132,42 @@ class RNNModel(nn.Module):
         return [(weight.new(1, bsz, self.nhid if l != self.nlayers - 1 else self.nhidlast).zero_(),
                  weight.new(1, bsz, self.nhid if l != self.nlayers - 1 else self.nhidlast).zero_())
                 for l in range(self.nlayers)]
+
+    # ----- EDITED ------
+    def setMasks(self, input, hidden):
+        """
+        Epoch Mask Implementation:
+        This function should work by calling it EVERY EPOCH and then the forward will be by those SAME masks
+        Reproducing the forward procedure - to create specific layers' masks
+        """
+        emb = embedded_dropout(self.encoder, input,
+                               dropout=self.dropoute if (self.training and self.use_dropout) else 0)
+        self.masks['emb'] = LockedDropout.getMask(emb, self.dropouti if self.use_dropout else 0)
+        # emb = self.lockdrop(emb, self.dropouti if self.use_dropout else 0)
+
+        raw_output = emb
+        new_hidden = []
+        raw_outputs = []
+        outputs = []
+        for l, rnn in enumerate(self.rnns):
+            current_input = raw_output
+            raw_output, new_h = rnn(raw_output, hidden[l])
+            new_hidden.append(new_h)
+            raw_outputs.append(raw_output)
+            if l != self.nlayers - 1:
+                self.masks['raw_outputs_' + str(l)] = LockedDropout.getMask(self.raw_output,
+                                                                            self.dropouth if self.use_dropout else 0)
+                # raw_output = self.lockdrop(raw_output, self.dropouth if self.use_dropout else 0)
+                outputs.append(raw_output)
+
+        self.masks['output'] = LockedDropout.getMask(raw_output, self.dropout if self.use_dropout else 0)
+        # output = self.lockdrop(raw_output, self.dropout if self.use_dropout else 0)
+        outputs.append(raw_output)  # this i G
+
+        latent = self.latent(raw_output)  # this is H (tanh(W1 * G)
+        self.masks['latent'] = LockedDropout.getMask(latent, self.dropoutl if self.use_dropout else 0)
+        # latent = self.lockdrop(latent, self.dropoutl if self.use_dropout else 0)
+        # ----- EDITED ------
 
 
 if __name__ == '__main__':

@@ -1,0 +1,1 @@
+python encoder_analysis.py --data data/penn --dropouti 0.4 --dropoutl 0.29 --dropouth 0.225 --seed 28 --batch_size 12 --lr 20.0 --epoch 100 --nhid 960 --nhidlast 620 --emsize 280 --n_experts 15 --save PTB-20201018-170341-SOTA --continue_train --single_gpu --gpu_device 6

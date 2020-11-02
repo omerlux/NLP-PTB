@@ -82,6 +82,10 @@ parser.add_argument('--single_gpu', default=False, action='store_true',
                     help='use single GPU')
 parser.add_argument('--gpu_device', type=str, default="0",
                     help='specific use of gpu')
+parser.add_argument('--mc_eval', type=int, default=0,
+                    help='0 is for no Monte Carlo, otherwise its the number of the evaluations')
+parser.add_argument('--mc_freq', type=int, default=5,
+                    help='after how many epochs will be the mc evaluation')
 args = parser.parse_args()
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -163,7 +167,7 @@ criterion = nn.CrossEntropyLoss()
 
 def evaluate(data_source, batch_size=10):
     # Turn on evaluation mode which disables dropout.
-    model.eval()    # @TODO: change because of lock_drop (to enable dropout throughout evaluation
+    model.eval()
     total_loss = 0
     ntokens = len(corpus.dictionary)
     hidden = model.init_hidden(batch_size)
@@ -177,7 +181,90 @@ def evaluate(data_source, batch_size=10):
         total_loss += loss * len(data)
 
         hidden = repackage_hidden(hidden)
+
     return total_loss.item() / len(data_source)
+
+
+def evaluate_mc(data_source, batch_size=10, mc=1):
+    # Turn on evaluation mode disables dropout - we WONT do it...
+    # model.eval()
+    model.train()                   # activate dropouts
+    ntokens = len(corpus.dictionary)
+    total_loss = 0
+    with torch.no_grad():
+        for i in range(0, data_source.size(0) - 1, args.bptt):
+            hidden = [model.init_hidden(batch_size) for _ in range(mc)]
+            data, targets = get_batch(data_source, i, args, evaluation=True)
+
+            for mc_eval in range(mc):
+                prob, hidden_tmp = parallel_model(data, hidden[mc_eval], return_prob=True)
+                hidden[mc_eval] = repackage_hidden(hidden_tmp)
+                if not mc_eval:  # only in the first time
+                    prob_acc = prob.detach()
+                    # prob_acc_sqr = prob ** 2
+                else:
+                    prob_acc = prob_acc + prob.detach()
+                    # prob_acc_sqr = prob_acc_sqr + prob.detach() ** 2
+            log_prob_avg = torch.log((prob_acc / mc).add_(1e-8))
+            # log_prob_std = torch.log( torch.sqrt((prob_acc_sqr / mc) - (prob_acc / mc) ** 2) )
+
+            loss = nn.functional.nll_loss(log_prob_avg.view(-1, log_prob_avg.size(2)), targets.view(-1)).data.detach()
+            total_loss += loss * len(data)
+
+    return total_loss.item() / len(data_source)
+
+    # all_log_probs = np.array([] * mc)
+    # all_targets = np.array([] * mc)
+    # for mc_eval in range(mc):
+    #     hidden = model.init_hidden(batch_size)
+    #     for i in range(0, data_source.size(0) - 1, args.bptt):
+    #         data, targets = get_batch(data_source, i, args, evaluation=True)
+    #         log_prob, hidden = parallel_model(data, hidden)
+    #
+    #         if not i:
+    #             curr_log_probs = log_prob.view(-1, log_prob.size(2)).cpu()
+    #             curr_targets = targets.view(-1).cpu()
+    #         else:
+    #             curr_log_probs = torch.cat((curr_log_probs, log_prob.view(-1, log_prob.size(2)).cpu()), )
+    #             curr_targets = torch.cat((curr_targets, targets.view(-1).cpu()), )
+    #         hidden = repackage_hidden(hidden)
+    #     all_log_probs[mc_eval] = curr_log_probs
+    #     all_targets[mc_eval] = curr_targets
+
+
+    # all_log_probs = torch.FloatTensor().cuda()
+    # all_targets = torch.FloatTensor().cuda()
+    # for mc_eval in range(mc):
+    #     total_loss = 0
+    #     hidden = model.init_hidden(batch_size)
+    #     for i in range(0, data_source.size(0) - 1, args.bptt):
+    #         data, targets = get_batch(data_source, i, args, evaluation=True)
+    #         targets = targets.view(-1)
+    #
+    #         log_prob, hidden = parallel_model(data, hidden)
+    #         all_log_probs = torch.cat((all_log_probs, log_prob.view(-1, log_prob.size(2))), ).detach()
+    #         all_targets = torch.cat((all_targets, targets))
+    #
+    #         hidden = repackage_hidden(hidden)
+    # loss = nn.functional.nll_loss(all_log_probs, all_targets).data
+    # return loss
+
+
+    # for mc_eval in range(mc):
+    #     total_loss = 0
+    #     hidden = model.init_hidden(batch_size)
+    #     for i in range(0, data_source.size(0) - 1, args.bptt):
+    #         data, targets = get_batch(data_source, i, args, evaluation=True)
+    #         targets = targets.view(-1)
+    #
+    #         log_prob, hidden = parallel_model(data, hidden)
+    #         loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), targets).data
+    #
+    #         total_loss += loss * len(data)
+    #
+    #         hidden = repackage_hidden(hidden)
+    #     losses.append(total_loss.item() / len(data_source))
+    # return np.average(losses), np.std(losses)
 
 
 def train():
@@ -280,6 +367,11 @@ try:
             logging.info('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
                          'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
                                                     val_loss2, math.exp(val_loss2)))
+            # MC evaluation:
+            if args.mc_eval != 0 and epoch % args.mc_freq == 0:
+                avg = evaluate_mc(val_data, mc=args.mc_eval)
+                logging.info('| end of epoch {:3d} | time: {:5.2f}s | Monte Carlo - valid ppl avg {:5.2f} | '
+                             .format(epoch, (time.time() - epoch_start_time), math.exp(avg)))
             logging.info('-' * 89)
 
             if val_loss2 < stored_loss:
@@ -296,6 +388,11 @@ try:
             logging.info('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
                          'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
                                                     val_loss, math.exp(val_loss)))
+            # MC evaluation:
+            if args.mc_eval != 0 and epoch % args.mc_freq == 0:
+                avg = evaluate_mc(val_data, eval_batch_size, mc=args.mc_eval)
+                logging.info('| end of epoch {:3d} | time: {:5.2f}s | Monte Carlo - valid ppl avg {:5.2f} | '
+                             .format(epoch, (time.time() - epoch_start_time), math.exp(avg)))
             logging.info('-' * 89)
 
             if val_loss < stored_loss:

@@ -9,6 +9,7 @@ def repackage_hidden(h):
     else:
         return h.detach()
 
+
 def batchify(data, bsz, args):
     # Work out how cleanly we can divide the dataset into bsz parts.
     nbatch = data.size(0) // bsz
@@ -21,10 +22,11 @@ def batchify(data, bsz, args):
         data = data.cuda()
     return data
 
+
 def get_batch(source, i, args, seq_len=None, evaluation=False):
     seq_len = min(seq_len if seq_len else args.bptt, len(source) - 1 - i)
-    data = source[i:i+seq_len].detach() if evaluation else source[i:i+seq_len]
-    target = source[i+1:i+1+seq_len]
+    data = source[i:i + seq_len].detach() if evaluation else source[i:i + seq_len]
+    target = source[i + 1:i + 1 + seq_len]
     return data, target
 
 
@@ -38,6 +40,7 @@ def create_exp_dir(path, scripts_to_save=None):
         for script in scripts_to_save:
             dst_file = os.path.join(path, 'scripts', os.path.basename(script))
             shutil.copyfile(script, dst_file)
+
 
 def save_checkpoint(model, optimizer, path, finetune=False):
     if finetune:

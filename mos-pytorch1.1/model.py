@@ -23,6 +23,7 @@ class RNNModel(nn.Module):
         self.rnns = [torch.nn.LSTM(ninp if l == 0 else nhid, nhid if l != nlayers - 1 else nhidlast, 1, dropout=0) for l
                      in range(nlayers)]
         if wdrop:
+            # note: DEACTIVATING variational to weight drop... 1/11/20
             self.rnns = [WeightDrop(rnn, ['weight_hh_l0'], dropout=wdrop if self.use_dropout else 0) for rnn in
                          self.rnns]
         self.rnns = torch.nn.ModuleList(self.rnns)
@@ -58,8 +59,10 @@ class RNNModel(nn.Module):
         self.n_experts = n_experts
         self.ntoken = ntoken
 
-        # for epoch mask:
-        self.masks = []
+        # What is this?
+        # To implement mc evaluation we will adjust this parameter manually to TRUE. Then, each dropout WON'T be scaled
+        # and in addition LSTM-WD will turn off.
+        self.monte_carlo = False
 
         size = 0
         for p in self.parameters():
@@ -73,15 +76,15 @@ class RNNModel(nn.Module):
         self.decoder.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, input, hidden, return_h=False, return_prob=False):
-        epoch_mask = self.masks != []  # will be True if masks are set (in the training session)
+        # epoch_mask = self.masks != []  # will be True if masks are set (in the training session)  # note: for Epoch Mask
         batch_size = input.size(1)
 
         emb = embedded_dropout(self.encoder, input,
-                               dropout=self.dropoute if (self.training and self.use_dropout) else 0)
+                               eval=not (self.training and self.use_dropout), dropout=self.dropoute)
         # emb = self.idrop(emb)
 
-        emb = self.lockdrop(emb, self.dropouti if self.use_dropout else 0) if not epoch_mask \
-            else (emb * self.masks['emb'])  # constant mask for epoch_mask
+        emb = self.lockdrop(emb, dropout=self.dropouti if self.use_dropout else 0)
+        # if not epoch_mask else (emb * self.masks['emb'])  # constant mask for epoch_mask  # note: for Epoch Mask
 
         raw_output = emb
         new_hidden = []
@@ -90,23 +93,24 @@ class RNNModel(nn.Module):
         outputs = []
         for l, rnn in enumerate(self.rnns):
             current_input = raw_output
+            rnn.monte_carlo = self.monte_carlo      # update monte carlo evaluation parameter
             raw_output, new_h = rnn(raw_output, hidden[l])
             new_hidden.append(new_h)
             raw_outputs.append(raw_output)
             if l != self.nlayers - 1:
                 # self.hdrop(raw_output)
-                raw_output = self.lockdrop(raw_output, self.dropouth if self.use_dropout else 0) if not epoch_mask \
-                    else raw_output * self.masks['raw_output_' + str(l)]  # constant mask for epoch_mask
+                raw_output = self.lockdrop(raw_output, dropout=self.dropouth if self.use_dropout else 0)
+                # if not epoch_mask else raw_output * self.masks['raw_output_' + str(l)]  # constant mask for epoch_mask  # note: for Epoch Mask
                 outputs.append(raw_output)
         hidden = new_hidden
 
-        output = self.lockdrop(raw_output, self.dropout if self.use_dropout else 0) if not epoch_mask \
-            else raw_output * self.masks['output']  # constant mask for epoch_mask
+        output = self.lockdrop(raw_output, dropout=self.dropout if self.use_dropout else 0)
+        # if not epoch_mask else raw_output * self.masks['output']  # constant mask for epoch_mask  # note: for Epoch Mask
         outputs.append(output)  # this i G
 
         latent = self.latent(output)  # this is H (tanh(W1 * G)
-        latent = self.lockdrop(latent, self.dropoutl if self.use_dropout else 0) if not epoch_mask \
-            else latent * self.masks['latent']  # constant mask for epoch_mask
+        latent = self.lockdrop(latent, dropout=self.dropoutl if self.use_dropout else 0)
+        # if not epoch_mask else latent * self.masks['latent']  # constant mask for epoch_mask  # note: for Epoch Mask
         logit = self.decoder(latent.view(-1, self.ninp))  # this is the logit = W2 * H
 
         prior_logit = self.prior(output).contiguous().view(-1, self.n_experts)  # W3 * G

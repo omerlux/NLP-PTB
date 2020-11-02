@@ -9,6 +9,7 @@ class WeightDrop(torch.nn.Module):
         self.weights = weights
         self.dropout = dropout
         self.variational = variational
+        self.monte_carlo = False
         self._setup()
 
     def widget_demagnetizer_y2k_edition(*args, **kwargs):
@@ -30,6 +31,7 @@ class WeightDrop(torch.nn.Module):
             self.module.register_parameter(name_w + '_raw', Parameter(w.data))
 
     def _setweights(self):
+        # 2/11/20 - no scaling for dropout! - in evaluation it will be multiple by (1-dropout)
         for name_w in self.weights:
             raw_w = getattr(self.module, name_w + '_raw')
             w = None
@@ -40,8 +42,8 @@ class WeightDrop(torch.nn.Module):
                 w = mask.expand_as(raw_w) * raw_w
             else:
                 w = torch.nn.functional.dropout(raw_w, p=self.dropout, training=self.training)
-            if not self.training:
-                w = w.data
+            if not self.training:   # turn WD off... - if we are NOT in training = only evaluation (normal)
+                w = w.data * (1-self.dropout)
                 
             setattr(self.module, name_w, w)
 

@@ -59,11 +59,6 @@ class RNNModel(nn.Module):
         self.n_experts = n_experts
         self.ntoken = ntoken
 
-        # What is this?
-        # To implement mc evaluation we will adjust this parameter manually to TRUE. Then, each dropout WON'T be scaled
-        # and in addition LSTM-WD will turn off.
-        self.monte_carlo = False
-
         size = 0
         for p in self.parameters():
             size += p.nelement()
@@ -80,7 +75,7 @@ class RNNModel(nn.Module):
 
         # usedp = False if we are at normal eval
         emb = embedded_dropout(self.encoder, input, dropout=self.dropoute,
-                               usedp=not (self.training and self.use_dropout))
+                               usedp=(self.training and self.use_dropout))
         # emb = self.idrop(emb)
 
         emb = self.lockdrop(emb, dropout=self.dropouti if self.use_dropout else 0)
@@ -92,7 +87,6 @@ class RNNModel(nn.Module):
         outputs = []
         for l, rnn in enumerate(self.rnns):
             current_input = raw_output
-            rnn.monte_carlo = self.monte_carlo      # update monte carlo evaluation parameter
             raw_output, new_h = rnn(raw_output, hidden[l])
             new_hidden.append(new_h)
             raw_outputs.append(raw_output)
@@ -132,42 +126,6 @@ class RNNModel(nn.Module):
         return [(weight.new(1, bsz, self.nhid if l != self.nlayers - 1 else self.nhidlast).zero_(),
                  weight.new(1, bsz, self.nhid if l != self.nlayers - 1 else self.nhidlast).zero_())
                 for l in range(self.nlayers)]
-
-    # ----- EDITED ------
-    def setMasks(self, input, hidden):
-        """
-        Epoch Mask Implementation:
-        This function should work by calling it EVERY EPOCH and then the forward will be by those SAME masks
-        Reproducing the forward procedure - to create specific layers' masks
-        """
-        emb = embedded_dropout(self.encoder, input,
-                               dropout=self.dropoute if (self.training and self.use_dropout) else 0)
-        self.masks['emb'] = LockedDropout.getMask(emb, self.dropouti if self.use_dropout else 0)
-        # emb = self.lockdrop(emb, self.dropouti if self.use_dropout else 0)
-
-        raw_output = emb
-        new_hidden = []
-        raw_outputs = []
-        outputs = []
-        for l, rnn in enumerate(self.rnns):
-            current_input = raw_output
-            raw_output, new_h = rnn(raw_output, hidden[l])
-            new_hidden.append(new_h)
-            raw_outputs.append(raw_output)
-            if l != self.nlayers - 1:
-                self.masks['raw_outputs_' + str(l)] = LockedDropout.getMask(self.raw_output,
-                                                                            self.dropouth if self.use_dropout else 0)
-                # raw_output = self.lockdrop(raw_output, self.dropouth if self.use_dropout else 0)
-                outputs.append(raw_output)
-
-        self.masks['output'] = LockedDropout.getMask(raw_output, self.dropout if self.use_dropout else 0)
-        # output = self.lockdrop(raw_output, self.dropout if self.use_dropout else 0)
-        outputs.append(raw_output)  # this i G
-
-        latent = self.latent(raw_output)  # this is H (tanh(W1 * G)
-        self.masks['latent'] = LockedDropout.getMask(latent, self.dropoutl if self.use_dropout else 0)
-        # latent = self.lockdrop(latent, self.dropoutl if self.use_dropout else 0)
-        # ----- EDITED ------
 
 
 if __name__ == '__main__':

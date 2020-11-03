@@ -4,14 +4,14 @@ import torch
 import torch.nn.functional as F
 
 
-def embedded_dropout(embed, words, eval, dropout=0.1, scale=None):
-    # 2/11/20 - no scaling for dropout! - in evaluation it will be multiple by (1-dropout)
-    if not eval:
+def embedded_dropout(embed, words, usedp, dropout=0.1, scale=None):
+    # 3/11/20 - dropout and div will occur at Train / MC eval
+    if usedp:
         mask = embed.weight.data.new().resize_((embed.weight.size(0), 1)).bernoulli_(1 - dropout).expand_as(
-            embed.weight)  # / (1 - dropout)
+            embed.weight) / (1 - dropout)
         masked_embed_weight = mask * embed.weight
-    else:  # if it's evaluation (normal) - just multiple the weights by the dropout rate
-        masked_embed_weight = embed.weight * (1 - dropout)
+    else:  # if it's normal eval - just return the weights
+        masked_embed_weight = embed.weight
     if scale:
         masked_embed_weight = scale.expand_as(masked_embed_weight) * masked_embed_weight
 

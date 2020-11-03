@@ -31,19 +31,20 @@ class WeightDrop(torch.nn.Module):
             self.module.register_parameter(name_w + '_raw', Parameter(w.data))
 
     def _setweights(self):
-        # 2/11/20 - no scaling for dropout! - in evaluation it will be multiple by (1-dropout)
+        # 3/11/20 - dropout and div will occur at Train / MC eval
         for name_w in self.weights:
             raw_w = getattr(self.module, name_w + '_raw')
             w = None
             if self.variational:
                 mask = torch.ones(raw_w.size(0), 1)
                 if raw_w.is_cuda: mask = mask.cuda()
-                mask = torch.nn.functional.dropout(mask, p=self.dropout, training=True)
+                # note: this is a try to divide by (1-dp)
+                mask = torch.nn.functional.dropout(mask, p=self.dropout, training=True) / (1 - self.dropout)
                 w = mask.expand_as(raw_w) * raw_w
             else:
                 w = torch.nn.functional.dropout(raw_w, p=self.dropout, training=self.training)
-            if not self.training:   # turn WD off... - if we are NOT in training = only evaluation (normal)
-                w = w.data * (1-self.dropout)
+            if not self.training:   # turn WD off... - if we are NOT in training = only in normal eval
+                w = w.data
                 
             setattr(self.module, name_w, w)
 

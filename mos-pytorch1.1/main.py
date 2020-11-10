@@ -189,11 +189,12 @@ def evaluate_mc(data_source, batch_size=10, mc=1):
     # Turn on evaluation mode disables dropout - we WONT do it...
     # model.eval()
     model.train()                   # activate dropouts
+    model.mc_eval = True
     ntokens = len(corpus.dictionary)
     total_loss = 0
     with torch.no_grad():
+        hidden = [model.init_hidden(batch_size) for _ in range(mc)]
         for i in range(0, data_source.size(0) - 1, args.bptt):
-            hidden = [model.init_hidden(batch_size) for _ in range(mc)]
             data, targets = get_batch(data_source, i, args, evaluation=True)
 
             for mc_eval in range(mc):
@@ -210,7 +211,7 @@ def evaluate_mc(data_source, batch_size=10, mc=1):
 
             loss = nn.functional.nll_loss(log_prob_avg.view(-1, log_prob_avg.size(2)), targets.view(-1)).data.detach()
             total_loss += loss * len(data)
-
+    model.mc_eval = False
     return total_loss.item() / len(data_source)
 
     # all_log_probs = np.array([] * mc)

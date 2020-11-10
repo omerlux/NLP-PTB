@@ -59,6 +59,9 @@ class RNNModel(nn.Module):
         self.n_experts = n_experts
         self.ntoken = ntoken
 
+        # mc_eval - to notice the model not to multiple the masks of the dropout
+        self.mc_eval = False
+
         size = 0
         for p in self.parameters():
             size += p.nelement()
@@ -74,11 +77,12 @@ class RNNModel(nn.Module):
         batch_size = input.size(1)
 
         # usedp = False if we are at normal eval
-        emb = embedded_dropout(self.encoder, input, dropout=self.dropoute,
-                               usedp=(self.training and self.use_dropout))
+        emb = embedded_dropout(self.encoder, input, dropout=self.dropoute, usedp=(self.training and self.use_dropout),
+                               mc_eval=self.mc_eval)
         # emb = self.idrop(emb)
 
-        emb = self.lockdrop(emb, dropout=self.dropouti if self.use_dropout else 0)
+        emb = self.lockdrop(emb, dropout=self.dropouti if self.use_dropout else 0
+                            , mc_eval=self.mc_eval)
 
         raw_output = emb
         new_hidden = []
@@ -87,20 +91,24 @@ class RNNModel(nn.Module):
         outputs = []
         for l, rnn in enumerate(self.rnns):
             current_input = raw_output
+            rnn.mc_eval = self.mc_eval  # note: setting the mc_eval to the current forward state - to div/not in (1-p)
             raw_output, new_h = rnn(raw_output, hidden[l])
             new_hidden.append(new_h)
             raw_outputs.append(raw_output)
             if l != self.nlayers - 1:
                 # self.hdrop(raw_output)
-                raw_output = self.lockdrop(raw_output, dropout=self.dropouth if self.use_dropout else 0)
+                raw_output = self.lockdrop(raw_output, dropout=self.dropouth if self.use_dropout else 0
+                                           , mc_eval=self.mc_eval)
                 outputs.append(raw_output)
         hidden = new_hidden
 
-        output = self.lockdrop(raw_output, dropout=self.dropout if self.use_dropout else 0)
+        output = self.lockdrop(raw_output, dropout=self.dropout if self.use_dropout else 0
+                               , mc_eval=self.mc_eval)
         outputs.append(output)  # this i G
 
         latent = self.latent(output)  # this is H (tanh(W1 * G)
-        latent = self.lockdrop(latent, dropout=self.dropoutl if self.use_dropout else 0)
+        latent = self.lockdrop(latent, dropout=self.dropoutl if self.use_dropout else 0
+                               , mc_eval=self.mc_eval)
         logit = self.decoder(latent.view(-1, self.ninp))  # this is the logit = W2 * H
 
         prior_logit = self.prior(output).contiguous().view(-1, self.n_experts)  # W3 * G

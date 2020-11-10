@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 
 
-def embedded_dropout(embed, words, usedp, dropout=0.1, scale=None):
+def embedded_dropout(embed, words, usedp, dropout=0.1, mc_eval=False, scale=None):
     # 3/11/20 - dropout and div will occur at Train / MC eval
     if usedp:
         mask = embed.weight.data.new().resize_((embed.weight.size(0), 1)).bernoulli_(1 - dropout).expand_as(

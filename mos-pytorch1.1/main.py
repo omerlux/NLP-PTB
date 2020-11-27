@@ -214,59 +214,6 @@ def evaluate_mc(data_source, batch_size=10, mc=1):
     model.mc_eval = False
     return total_loss.item() / len(data_source)
 
-    # all_log_probs = np.array([] * mc)
-    # all_targets = np.array([] * mc)
-    # for mc_eval in range(mc):
-    #     hidden = model.init_hidden(batch_size)
-    #     for i in range(0, data_source.size(0) - 1, args.bptt):
-    #         data, targets = get_batch(data_source, i, args, evaluation=True)
-    #         log_prob, hidden = parallel_model(data, hidden)
-    #
-    #         if not i:
-    #             curr_log_probs = log_prob.view(-1, log_prob.size(2)).cpu()
-    #             curr_targets = targets.view(-1).cpu()
-    #         else:
-    #             curr_log_probs = torch.cat((curr_log_probs, log_prob.view(-1, log_prob.size(2)).cpu()), )
-    #             curr_targets = torch.cat((curr_targets, targets.view(-1).cpu()), )
-    #         hidden = repackage_hidden(hidden)
-    #     all_log_probs[mc_eval] = curr_log_probs
-    #     all_targets[mc_eval] = curr_targets
-
-
-    # all_log_probs = torch.FloatTensor().cuda()
-    # all_targets = torch.FloatTensor().cuda()
-    # for mc_eval in range(mc):
-    #     total_loss = 0
-    #     hidden = model.init_hidden(batch_size)
-    #     for i in range(0, data_source.size(0) - 1, args.bptt):
-    #         data, targets = get_batch(data_source, i, args, evaluation=True)
-    #         targets = targets.view(-1)
-    #
-    #         log_prob, hidden = parallel_model(data, hidden)
-    #         all_log_probs = torch.cat((all_log_probs, log_prob.view(-1, log_prob.size(2))), ).detach()
-    #         all_targets = torch.cat((all_targets, targets))
-    #
-    #         hidden = repackage_hidden(hidden)
-    # loss = nn.functional.nll_loss(all_log_probs, all_targets).data
-    # return loss
-
-
-    # for mc_eval in range(mc):
-    #     total_loss = 0
-    #     hidden = model.init_hidden(batch_size)
-    #     for i in range(0, data_source.size(0) - 1, args.bptt):
-    #         data, targets = get_batch(data_source, i, args, evaluation=True)
-    #         targets = targets.view(-1)
-    #
-    #         log_prob, hidden = parallel_model(data, hidden)
-    #         loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), targets).data
-    #
-    #         total_loss += loss * len(data)
-    #
-    #         hidden = repackage_hidden(hidden)
-    #     losses.append(total_loss.item() / len(data_source))
-    # return np.average(losses), np.std(losses)
-
 
 def train():
     assert args.batch_size % args.small_batch_size == 0, 'batch_size must be divisible by small_batch_size'

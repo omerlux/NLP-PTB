@@ -1,1 +1,3 @@
 /results-and-doc/* linguist-documentation
+*.html linguist-documentation
+*.pdf linguist-documentation
